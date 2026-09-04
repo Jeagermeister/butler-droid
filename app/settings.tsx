@@ -1,0 +1,58 @@
+import ClearButtons from "@/components/buttons/clear-buttons";
+import AssistantSettingsGroup from "@/components/groups/assistant-settings-group";
+import ModelSettingsGroup from "@/components/groups/model-settings-group";
+import SystemSettingsGroup from "@/components/groups/system-settings-group";
+import ThemeSettingsGroup from "@/components/groups/theme-settings-group";
+import UserSettingsGroup from "@/components/groups/user-settings-group";
+import { useSystem } from "@/context";
+import { StyleSheet, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+function Settings() {
+  const { colorScheme } = useSystem();
+  const insets = useSafeAreaInsets();
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colorScheme.surface,
+      paddingVertical: 8,
+    },
+    content: {
+      flexDirection: "column",
+      // Edge-to-edge: keep the last row clear of the navigation bar.
+      paddingBottom: insets.bottom + 16,
+    },
+    divider: {
+      height: 2,
+      backgroundColor: colorScheme.outline,
+      marginHorizontal: 18,
+      marginVertical: 12,
+      borderRadius: 1,
+    }
+  });
+
+  return (
+    <KeyboardAwareScrollView
+      testID="settings-page"
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      bottomOffset={16}
+    >
+      <ModelSettingsGroup />
+      <View style={styles.divider} />
+      <UserSettingsGroup />
+      <View style={styles.divider} />
+      <AssistantSettingsGroup />
+      <View style={styles.divider} />
+      <SystemSettingsGroup />
+      <View style={styles.divider} />
+      <ThemeSettingsGroup />
+      <View style={styles.divider} />
+      <ClearButtons />
+    </KeyboardAwareScrollView>
+  );
+}
+
+export default Settings;

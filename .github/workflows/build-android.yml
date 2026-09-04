@@ -1,0 +1,300 @@
+name: Build Android
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-android.yml'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '*.js'
+      - '*.json'
+      - '*.lock'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-android.yml'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '*.js'
+      - '*.json'
+      - '*.lock'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # fetch-depth: 0 so `git rev-list --count HEAD` can derive the versionCode.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node (Yarn cache)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.19.4
+          cache: yarn
+
+      - name: Install JS deps
+        run: |
+          yarn install --frozen-lockfile
+
+      # android/ is not committed, so everything below depends on this step.
+      - name: Prebuild Android
+        run: |
+          yarn prebuild
+          chmod +x android/gradlew
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.1.12297006"
+          yes | sdkmanager --licenses
+
+      - name: Decode Upload Keystore File
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+        run: echo "$KEYSTORE" | base64 --decode > android/app/upload.jks
+
+      - name: Decode Signing Keystore File
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_SIGNING_KEYSTORE }}
+        run: echo "$KEYSTORE" | base64 --decode > android/app/signing.jks
+
+      - name: Create key.properties
+        run: |
+          echo "signingKey=signing.jks" > android/key.properties
+          echo "uploadKey=upload.jks" >> android/key.properties
+          echo "storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}" >> android/key.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+          echo "releasePassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+          echo "releaseAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+          # The upload key signs the AAB. Without these two the plugin cannot
+          # resolve the upload signing config and the bundle build fails.
+          echo "uploadAlias=${{ secrets.ANDROID_UPLOAD_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+          echo "uploadPassword=${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+          echo "uploadStorePassword=${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD || secrets.ANDROID_STORE_PASSWORD }}" >> android/key.properties
+
+      - name: Build APK (assembleRelease)
+        run: |
+          yarn build-android
+
+      - name: Rename APK
+        run: |
+          mkdir -p release
+          mv android/app/build/outputs/apk/release/app-universal-release.apk release/maid-android-universal.apk
+          mv android/app/build/outputs/apk/release/app-arm64-v8a-release.apk release/maid-android-arm64-v8a.apk
+          mv android/app/build/outputs/apk/release/app-x86_64-release.apk release/maid-android-x86_64.apk
+
+      - name: Build AAB (bundleRelease)
+        run: |
+          yarn build-android-bundle
+
+      - name: Rename AAB
+        run: |
+          mkdir -p release
+          mv android/app/build/outputs/bundle/release/app-release.aab release/maid-android-bundle.aab
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android
+          path: release
+          if-no-files-found: error
+
+      - name: Upload ARM64 APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-arm64-v8a
+          path: release/maid-android-arm64-v8a.apk
+          if-no-files-found: error
+
+      - name: Upload x86_64 APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-x86_64
+          path: release/maid-android-x86_64.apk
+          if-no-files-found: error
+
+      - name: Upload Universal APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-universal
+          path: release/maid-android-universal.apk
+          if-no-files-found: error
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-bundle
+          path: release/maid-android-bundle.aab
+          if-no-files-found: error
+
+  build-no-hexagon:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # fetch-depth: 0 so `git rev-list --count HEAD` can derive the versionCode.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node (Yarn cache)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.19.4
+          cache: yarn
+
+      - name: Install JS deps
+        run: |
+          yarn install --frozen-lockfile
+
+      # android/ is not committed, so everything below depends on this step.
+      - name: Prebuild Android
+        run: |
+          yarn prebuild
+          chmod +x android/gradlew
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.1.12297006"
+          yes | sdkmanager --licenses
+
+      - name: Decode Upload Keystore File
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+        run: echo "$KEYSTORE" | base64 --decode > android/app/upload.jks
+
+      - name: Decode Signing Keystore File
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_SIGNING_KEYSTORE }}
+        run: echo "$KEYSTORE" | base64 --decode > android/app/signing.jks
+
+      - name: Create key.properties
+        run: |
+          echo "signingKey=signing.jks" > android/key.properties
+          echo "uploadKey=upload.jks" >> android/key.properties
+          echo "storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}" >> android/key.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+          echo "releasePassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+          echo "releaseAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+          # The upload key signs the AAB. Without these two the plugin cannot
+          # resolve the upload signing config and the bundle build fails.
+          echo "uploadAlias=${{ secrets.ANDROID_UPLOAD_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+          echo "uploadPassword=${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+          echo "uploadStorePassword=${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD || secrets.ANDROID_STORE_PASSWORD }}" >> android/key.properties
+
+      # Must run after prebuild: `--clean` rewrites gradle.properties.
+      - name: Enable rnllama build from source
+        run: |
+          FILE="./android/gradle.properties"
+          LINE="rnllamaBuildFromSource=true"
+
+          echo "🔧 Updating $FILE"
+
+          if ! grep -qxF "$LINE" "$FILE"; then
+            echo "" >> "$FILE"
+            echo "$LINE" >> "$FILE"
+            echo "Added rnllamaBuildFromSource=true"
+          else
+            echo "Property already present"
+          fi
+
+      - name: Build APK (assembleRelease)
+        run: |
+          yarn build-android
+
+      - name: Rename APK
+        run: |
+          mkdir -p release
+          mv android/app/build/outputs/apk/release/app-universal-release.apk release/maid-android-universal-no-hexagon.apk
+          mv android/app/build/outputs/apk/release/app-arm64-v8a-release.apk release/maid-android-arm64-v8a-no-hexagon.apk
+          mv android/app/build/outputs/apk/release/app-x86_64-release.apk release/maid-android-x86_64-no-hexagon.apk
+
+      - name: Build AAB (bundleRelease)
+        run: |
+          yarn build-android-bundle
+
+      - name: Rename AAB
+        run: |
+          mkdir -p release
+          mv android/app/build/outputs/bundle/release/app-release.aab release/maid-android-bundle-no-hexagon.aab
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-no-hexagon
+          path: release
+          if-no-files-found: error
+
+      - name: Upload ARM64 APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-arm64-v8a-no-hexagon
+          path: release/maid-android-arm64-v8a-no-hexagon.apk
+          if-no-files-found: error
+
+      - name: Upload x86_64 APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-x86_64-no-hexagon
+          path: release/maid-android-x86_64-no-hexagon.apk
+          if-no-files-found: error
+
+      - name: Upload Universal APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-universal-no-hexagon
+          path: release/maid-android-universal-no-hexagon.apk
+          if-no-files-found: error
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v6
+        with:
+          name: maid-android-bundle-no-hexagon
+          path: release/maid-android-bundle-no-hexagon.aab
+          if-no-files-found: error
